@@ -1,0 +1,33 @@
+name: build-freecad
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '01_CAD/src/**.py'
+      - '.github/workflows/build-freecad.yml'
+      - '03_Docs/**'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install FreeCAD 1.0 (Ubuntu PPA)
+        run: |
+          sudo add-apt-repository -y ppa:freecad-maintainers/freecad-stable
+          sudo apt-get update
+          sudo apt-get install -y freecad freecad-python3
+
+      - name: Build FCStd and STEP
+        run: |
+          python3 01_CAD/src/build_tars_fcstd.py
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: TARS_v0.2_FCStd_STEP
+          path: |
+            01_CAD/build/TARS_v0.2.FCStd
+            01_CAD/build/TARS_v0.2.step
+          if-no-files-found: error

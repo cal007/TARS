@@ -1,0 +1,14 @@
+Item,Qty,Description,Spec/Std,Material,Remark
+CHS_MainRails,2,Main longitudinal rails,EN 10210 RHS 180x100x8,S355J2H,Preliminary
+Crossmembers,8,Crossmember grid,EN 10210 SHS 100x100x6.3,S355J2H,Spacing ~300 mm
+Deck_Plate,1,Level-1 deck plate,12 mm sheet,S355MC,To be profiled
+Posts_L2,8,Level-2 posts,EN 10210 SHS 100x100x6.3,S355J2H,Welded to deck
+L2_CarrierPlate,1,Deck level-2 carrier,H-plate 12 mm,S355MC,To be drilled
+Drawer_Boxes,20,Schubladenboxen,521x717x130,Alu/Stahl per supplier,Open side x–z outward
+Drawer_Cages,10,Welded cages per side bays,S235JR,With slides + latch
+Slides_Latches,20,Full ext. slides + locks,Heavy duty 100 kg,—
+SwivelLaunchBox,2,Rotary/tilt box,923x960x970 6 mm,S355,Empty 340 kg
+RotaryPlate,2,Indexing at 0/33/90 deg,Ø per calc,S355,Detent/lock
+TiltMechanism,2,±49° vertical tilt,Pin/link/lock,S355/42CrMo4,—
+Coupling,1,NATO 15 t hook,D=92 kN,S355/forged,Mounting 45x85 mm
+AxleSet,1,Tandem running gear,ECE/EU compliant,—,Ground clearance target ≤850 mm

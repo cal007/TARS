@@ -1,0 +1,8 @@
+Case,Description,Assumptions,Result
+Mass_DrawerBoxes,20 boxes full,20*70 kg,1400 kg
+Mass_SLB,2 boxes full,2*690 kg,1380 kg
+Mass_SLB_empty,2 boxes empty,2*340 kg,680 kg
+Deck_Framework,Frame + deck est.,Profiles per BOM,~420 kg
+Coupling_Stützlast,Static nose weight target,EU trailer balance,≤750 kg (limit)
+SideSlope,35 deg requirement,CoG within track,Check in v0.3
+Ground_Clearance,Max 850 mm,Envelope driveline,To be validated with axle spec
