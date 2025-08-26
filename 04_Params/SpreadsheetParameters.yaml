@@ -1,0 +1,28 @@
+units: SI
+platform:
+  x: 2967
+  y: 2483
+  deck_thickness_mm: 12
+drawers:
+  box_ext_mm: {x: 521, y: 717, z: 130}
+  mass_empty_kg: 16
+  mass_full_kg: 70
+  per_side: {bays_x: 5, stack_z: 2}
+  total_boxes: 20
+swivel_launch_box:
+  ext_mm_drive_pose_xyz: {x: 970, y: 960, z: 923}
+  shell_thickness_mm: 6
+  mass_empty_kg: 340
+  mass_full_kg: 690
+  locks_deg: {h: [0,33,90], v: [0,49]}
+level2:
+  posts_per_side: 4
+  post_section_EN10210: "SHS 100x100x6.3"
+coupling:
+  type: "NATO hook 15t"
+  bolt_pattern_mm: {H: 45, B: 85}
+  D_value_kN: 92
+  vertical_static_load_kg: 750
+priorities:
+  side_slope_deg: 35
+  ground_clearance_mm_max: 850
