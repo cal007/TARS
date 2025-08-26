@@ -1,7 +1,10 @@
 # 01_CAD/src/build_tars_fcstd.py
 # Trailer assembly with two levels and 4 SLBs, elevated trunnion pivot on triangle supports
-# v0.8 — FreeCAD 1.0 verified, corrected Z-levels and pivot placement, only 4 SLBs
-# Author: assistant
+# v0.9 — FreeCAD 1.0 verified
+# - Robust pivot rotation (no Placement.center)
+# - SLBs strictly referenced to Level-2 (no dive into drawers)
+# - Symmetric X-placement within Level-2 plate
+# - Simple collision guard + debug
 
 import os, math
 import FreeCAD as App
@@ -17,16 +20,16 @@ if ACTIVE_POSE not in ("transport","load","use"):
     ACTIVE_POSE = "transport"
 DEBUG = os.environ.get("DEBUG","0") == "1"
 
-DOC = App.newDocument("TARS_v0_8")
+DOC = App.newDocument("TARS_v0_9")
 add = DOC.addObject
 
-def mk_feat(name, shape, base=(0,0,0), rot=None, center=None):
+def mk_feat(name, shape, base=(0,0,0), rot=None):
     o = add("Part::Feature", name)
     o.Shape = shape
-    if rot is None and center is None:
+    if rot is None:
         o.Placement = App.Placement(App.Vector(*base), App.Rotation())
     else:
-        o.Placement = App.Placement(App.Vector(*base), rot or App.Rotation(), App.Vector(*(center or (0,0,0))))
+        o.Placement = App.Placement(App.Vector(*base), rot)
     return o
 
 # ---------------- Parameters (mm) ----------------
@@ -63,27 +66,25 @@ PIVOT_OVER_TOP  = 80.0     # Achse über SLB-Oberkante
 PIVOT_X_OFFSET  = 385.0    # + nach vorn ab SLB-Mitte
 CLEAR_USE       = 20.0     # Mind. Spiel bei 49°
 
-# Dreiecks-Träger (vereinfacht zur Visualisierung)
+# Dreiecksträger (vereinfacht)
 TRI_BASE_LEN, TRI_BASE_W, TRI_BASE_T = 520.0, 80.0, 12.0
 TRI_DIAG_BX,  TRI_DIAG_BY, TRI_DIAG_T = 100.0, 40.0, 8.0
 PIVOT_BLOCK_W, PIVOT_BLOCK_T = 40.0, 15.0
 PIVOT_SHAFT_D = 40.0
 
-# Positionierung SLB
-SLB_ROW_CLEAR_Y   = 100.0
-SLB_COL_GAP_X     = 200.0
-SLB_FRONT_SETBACK = 250.0
+# SLB Reihen-Offset in Y (beide Reihen innerhalb LV2)
+SLB_ROW_CLEAR_Y = 100.0
 
 # Stützen (Dummy)
 COL_W, COL_D = 80.0, 80.0
 ADD_MID_X, ADD_MID_Y = True, False
 
-# ---------------- Z-Kette (sauber) ----------------
-plat_top_z  = 0.0                        # z=0 ist Oberseite Ebene 1
-rail_base_z = plat_top_z                 # Rails stehen auf Ebene 1
+# ---------------- Z-Kette ----------------
+plat_top_z  = 0.0                         # z=0 ist Oberseite Ebene 1
+rail_base_z = plat_top_z
 rail_top_z  = rail_base_z + RAIL_H
-lv2_base_z  = rail_top_z                 # Unterseite Ebene-2-Platte
-lv2_top_z   = lv2_base_z + LV2_PLATE_THK # Oberseite Ebene-2-Platte (Auflage H-Plate)
+lv2_base_z  = rail_top_z
+lv2_top_z   = lv2_base_z + LV2_PLATE_THK  # Auflage H-Plate
 
 # ---------------- Ebene 1 ----------------
 platform = mk_feat("Platform", Part.makeBox(PLAT_X, PLAT_Y, PLAT_T), base=(0,0,-PLAT_T))
@@ -92,7 +93,7 @@ slots, drawers = [], []
 
 def place_slot_row(side):
     y0 = SIDE_CLEAR_Y if side=='L' else (PLAT_Y - SIDE_CLEAR_Y - SLOT_Y)
-    x  = SLB_FRONT_SETBACK
+    x  = EDGE_SETBACK + 180.0  # konservativer Front-Setback
     for i in range(NUM_SLOTS_X_PER_SIDE):
         slot = mk_feat(f"Slot_{side}_{i+1}", Part.makeBox(SLOT_X,SLOT_Y,SLOT_Z), base=(x, y0, plat_top_z))
         slots.append(slot)
@@ -115,8 +116,23 @@ lv2_plate = mk_feat("Level2_Plate",
                     Part.makeBox(PLAT_X-2*EDGE_SETBACK, PLAT_Y-2*EDGE_SETBACK, LV2_PLATE_THK),
                     base=(EDGE_SETBACK, EDGE_SETBACK, lv2_base_z))
 
-# ---------------- Ebene 2: H-Plate, Träger, Trunnion, SLB ----------------
-hplates, triangles, slbs = [], [], []
+# ---------------- Hilfen ----------------
+def rot_about_pivot(rot, pivot, base_corner):
+    # Resultierende Placement: X' = R*X + (pivot - R*pivot + base_corner)
+    R = rot
+    pv = App.Vector(*pivot)
+    bc = App.Vector(*base_corner)
+    base = pv - R.multVec(pv) + bc
+    return App.Placement(base, R)
+
+def slb_set_pose(obj, base_corner, pivot_point, pose):
+    if pose == "transport":
+        rot = App.Rotation()
+    elif pose == "load":  # 90° horizontal (um z), 0° vertikal
+        rot = App.Rotation(App.Vector(0,0,1), 90)
+    else:  # use: 33°/49°
+        rot = App.Rotation(App.Vector(0,0,1), 33).multiply(App.Rotation(App.Vector(0,1,0), 49))
+    obj.Placement = rot_about_pivot(rot, pivot_point, base_corner)
 
 def make_hplate(name, cx, cy):
     shp = Part.makeBox(HPL_X, HPL_Y, HPL_THK)
@@ -126,82 +142,73 @@ def make_hplate(name, cx, cy):
 
 def make_triangle_supports(base_name, cx, cy, pivot_z, pivot_y_left, pivot_y_right):
     out = []
-    # Grundlasche
     o_base = mk_feat(base_name+"_Base", Part.makeBox(TRI_BASE_LEN,TRI_BASE_W,TRI_BASE_T),
                      base=(cx-TRI_BASE_LEN/2.0, cy-TRI_BASE_W/2.0, lv2_top_z))
     out.append(o_base)
-    # Diagonalsteg (nur Darstellung)
     diag = Part.makeBox(TRI_DIAG_BX,TRI_DIAG_BY,TRI_DIAG_T)
     o_diag = mk_feat(base_name+"_Diag", diag,
                      base=(cx-TRI_DIAG_BX/2.0, cy-TRI_DIAG_BY/2.0, lv2_top_z+TRI_BASE_T),
-                     rot=App.Rotation(App.Vector(0,1,0), -25), center=(cx,cy,lv2_top_z))
+                     rot=App.Rotation(App.Vector(0,1,0), -25))
     out.append(o_diag)
-    # Lagerblöcke
     lbL = mk_feat(base_name+"_PivotL", Part.makeBox(PIVOT_BLOCK_T,PIVOT_BLOCK_W,PIVOT_BLOCK_T),
                   base=(cx-PIVOT_BLOCK_T/2.0, pivot_y_left - PIVOT_BLOCK_W/2.0, pivot_z - PIVOT_BLOCK_T/2.0))
     lbR = mk_feat(base_name+"_PivotR", Part.makeBox(PIVOT_BLOCK_T,PIVOT_BLOCK_W,PIVOT_BLOCK_T),
                   base=(cx-PIVOT_BLOCK_T/2.0, pivot_y_right - PIVOT_BLOCK_W/2.0, pivot_z - PIVOT_BLOCK_T/2.0))
     out += [lbL, lbR]
-    # kurze „Wellen“-Zylinder (optisch)
     cyl = Part.makeCylinder(PIVOT_SHAFT_D/2.0, PIVOT_BLOCK_W)
     shL = mk_feat(base_name+"_ShaftL", cyl, base=(cx, pivot_y_left - PIVOT_BLOCK_W/2.0, pivot_z),
-                  rot=App.Rotation(App.Vector(0,1,0), 90), center=(cx, pivot_y_left, pivot_z))
+                  rot=App.Rotation(App.Vector(0,1,0), 90))
     shR = mk_feat(base_name+"_ShaftR", cyl, base=(cx, pivot_y_right - PIVOT_BLOCK_W/2.0, pivot_z),
-                  rot=App.Rotation(App.Vector(0,1,0), 90), center=(cx, pivot_y_right, pivot_z))
+                  rot=App.Rotation(App.Vector(0,1,0), 90))
     out += [shL, shR]
     return out
 
-def slb_place(obj, base_corner, pivot_point, pose):
-    # base_corner: (x0,y0,z0) Unterkante-vorn-links (Objektursprung) in Transport
-    # pivot_point: (px,py,pz) globale Trunnion-Achse (Zentrum)
-    x0,y0,z0 = base_corner
-    px,py,pz = pivot_point
-    if pose == "transport":
-        rot = App.Rotation()
-    elif pose == "load":
-        # 90° horizontal (um z), dann 0° vertikal
-        rot = App.Rotation(App.Vector(0,0,1), 90)
-    else:  # use
-        rot = App.Rotation(App.Vector(0,0,1), 33).multiply(App.Rotation(App.Vector(0,1,0), 49))
-    obj.Placement = App.Placement(App.Vector(x0,y0,z0), rot, App.Vector(px,py,pz))
+# ---------------- Ebene 2: SLB-Positionierung ----------------
+hplates, triangles, slbs = [], [], []
 
-def place_slb_pair(side, row_center_y, idx0):
-    # Zwei SLB je Seite (vorn/hinten)
-    x1 = SLB_FRONT_SETBACK + SLB_X/2.0
-    x2 = x1 + SLB_X + SLB_COL_GAP_X
-    for j, cx in enumerate((x1, x2), start=0):
-        tag = f"{side}{idx0+j}"
-        cy = row_center_y
-        # H-Plate
-        hp = make_hplate(f"HPlate_{tag}", cx, cy); hplates.append(hp)
-        # Z-Positionen
-        slb_base_z = lv2_top_z + HPL_THK + STANDOFF_S
-        pivot_z    = slb_base_z + SLB_Z + PIVOT_OVER_TOP
-        # X Pivot (vorversetzt, relativ SLB-Mitte)
-        pivot_x    = cx + PIVOT_X_OFFSET
-        # Y Pivot (Achse exakt in SLB-Mitte), Lagerblöcke knapp außerhalb
-        pivot_y    = cy
-        y_left  = cy - (SLB_Y/2.0 + PIVOT_BLOCK_W/2.0 + 10.0)
-        y_right = cy + (SLB_Y/2.0 + PIVOT_BLOCK_W/2.0 + 10.0)
-        # Träger/Lager
-        triangles.extend(make_triangle_supports(f"Tri_{tag}", cx, cy, pivot_z, y_left, y_right))
-        # SLB-Körper (Ursprung = Unterkante-vorn-links)
-        slb = mk_feat(f"SLB_{tag}", Part.makeBox(SLB_X, SLB_Y, SLB_Z))
-        base_corner = (cx - SLB_X/2.0, cy - SLB_Y/2.0, slb_base_z)
-        slb_place(slb, base_corner, (pivot_x, pivot_y, pivot_z), ACTIVE_POSE)
-        slbs.append(slb)
+# X-Bereich der LV2-Platte
+lv2_min_x = EDGE_SETBACK
+lv2_max_x = PLAT_X - EDGE_SETBACK
+# Symmetrische X-Positionen der beiden SLB je Seite (Mittelpunkte)
+front_setback = 180.0
+cx1 = lv2_min_x + front_setback + SLB_X/2.0
+cx2 = lv2_max_x - front_setback - SLB_X/2.0
 
-        if DEBUG:
-            print(f"[{tag}] base_corner={base_corner}  pivot={(pivot_x,pivot_y,pivot_z)}  pose={ACTIVE_POSE}")
-
-# Reihenmittellinien exakt innerhalb der LV2-Platte halten
+# Y-Reihenmitten so, dass Außenluft bleibt
 lv2_min_y = EDGE_SETBACK
 lv2_max_y = PLAT_Y - EDGE_SETBACK
 row_center_L = lv2_min_y + SLB_ROW_CLEAR_Y + SLB_Y/2.0
 row_center_R = lv2_max_y - SLB_ROW_CLEAR_Y - SLB_Y/2.0
 
-place_slb_pair('L', row_center_L, 1)
-place_slb_pair('R', row_center_R, 3)
+def place_slb(cx, cy, tag):
+    # H-Plate
+    hp = make_hplate(f"HPlate_{tag}", cx, cy); hplates.append(hp)
+    # Z-Level
+    slb_base_z = lv2_top_z + HPL_THK + STANDOFF_S
+    pivot_z    = slb_base_z + SLB_Z + PIVOT_OVER_TOP
+    pivot_x    = cx + PIVOT_X_OFFSET
+    pivot_y    = cy
+    y_left  = cy - (SLB_Y/2.0 + PIVOT_BLOCK_W/2.0 + 10.0)
+    y_right = cy + (SLB_Y/2.0 + PIVOT_BLOCK_W/2.0 + 10.0)
+    triangles.extend(make_triangle_supports(f"Tri_{tag}", cx, cy, pivot_z, y_left, y_right))
+    # SLB Körper (Ursprung = Unterkante-vorn-links)
+    slb = mk_feat(f"SLB_{tag}", Part.makeBox(SLB_X, SLB_Y, SLB_Z))
+    base_corner = (cx - SLB_X/2.0, cy - SLB_Y/2.0, slb_base_z)
+    slb_set_pose(slb, base_corner, (pivot_x, pivot_y, pivot_z), ACTIVE_POSE)
+    slbs.append(slb)
+
+    if DEBUG:
+        print(f"[{tag}] base={base_corner} pivot={(pivot_x,pivot_y,pivot_z)} pose={ACTIVE_POSE}")
+    # Simple guard: Unterkante darf nie unter lv2_top_z fallen
+    z_min = min(v.Z for v in slb.Shape.BoundBox.getVertices())
+    if z_min < lv2_top_z - 0.1:
+        raise RuntimeError(f"Collision: SLB_{tag} z_min={z_min:.2f} < lv2_top_z={lv2_top_z:.2f} — check PIVOT_* or STANDOFF_S")
+
+# Links (L1/L2) und Rechts (R1/R2)
+place_slb(cx1, row_center_L, "L1")
+place_slb(cx2, row_center_L, "L2")
+place_slb(cx1, row_center_R, "R1")
+place_slb(cx2, row_center_R, "R2")
 
 # ---------------- Stützen (Dummy) ----------------
 columns = []
@@ -227,10 +234,10 @@ assembly = add("App::DocumentObjectGroup", "Assembly_Proxy"); assembly.addObject
 App.ActiveDocument.recompute()
 
 # ---------------- Export ----------------
-fcstd = os.path.join(BUILD_DIR, "TARS_v0.8.FCStd")
+fcstd = os.path.join(BUILD_DIR, "TARS_v0.9.FCStd")
 App.ActiveDocument.saveAs(fcstd)
 
-step = os.path.join(BUILD_DIR, f"TARS_v0.8_{ACTIVE_POSE}.step")
+step = os.path.join(BUILD_DIR, f"TARS_v0.9_{ACTIVE_POSE}.step")
 Part.export([platform]+slots+drawers+[rail_L,rail_R,lv2_plate]+hplates+triangles+slbs+columns, step)
 
 print(f"Saved FCStd: {fcstd}")
