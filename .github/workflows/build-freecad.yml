@@ -6,6 +6,7 @@ on:
       - '01_CAD/src/**.py'
       - '.github/workflows/build-freecad.yml'
       - '03_Docs/**'
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -13,15 +14,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Fetch FreeCAD 1.0 AppImage
+      - name: Fetch FreeCAD 1.0.0 AppImage + SHA256 (SourceForge)
         run: |
-          FC_VER="1.0"
-          # Download offizielles AppImage (Stable). URL ggf. anpassen, falls Release-Name sich ändert.
-          wget -O FreeCAD.AppImage https://github.com/FreeCAD/FreeCAD/releases/download/1.0.0/FreeCAD_1.0.0-Linux-x86_64.AppImage
-          chmod +x FreeCAD.AppImage
-          # Entpacken, damit wir FreeCADCmd direkt aufrufen können (stabiler in CI)
-          ./FreeCAD.AppImage --appimage-extract
-          echo "$PWD/squashfs-root/usr/bin" >> $GITHUB_PATH
+          set -euo pipefail
+          APPIMG="FreeCAD_1.0.0-conda-Linux-x86_64-py311.AppImage"
+          SHAFILE="${APPIMG}-SHA256.txt"
+          # -L folgt Redirects von SourceForge
+          curl -L -o "${APPIMG}" "https://sourceforge.net/projects/freecad.mirror/files/1.0.0/${APPIMG}/download"
+          curl -L -o "${SHAFILE}" "https://sourceforge.net/projects/freecad.mirror/files/1.0.0/${SHAFILE}/download"
+          sha256sum -c <(sed -E "s#^([0-9a-f]+) .*#\1  ${APPIMG}#g" "${SHAFILE}")
+          chmod +x "${APPIMG}"
+          # Entpacken, damit FreeCADCmd sicher im PATH ist
+          ./"${APPIMG}" --appimage-extract
+          echo "${GITHUB_WORKSPACE}/squashfs-root/usr/bin" >> "$GITHUB_PATH"
 
       - name: Build FCStd and STEP (FreeCADCmd)
         run: |
