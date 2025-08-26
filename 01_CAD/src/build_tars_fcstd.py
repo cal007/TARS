@@ -1,144 +1,134 @@
 # 01_CAD/src/build_tars_fcstd.py
-# FreeCAD 1.0 headless builder for TARS v0.2
-import os, math, sys
+import os, math
 import FreeCAD as App
 import Part
 
+# --- Pfade ---
 repo_root = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
 build_dir = os.path.join(repo_root, "01_CAD", "build")
 os.makedirs(build_dir, exist_ok=True)
 
-# Dokument anlegen (oder öffnen, wenn du parametrisch erzeugst)
-doc = App.newDocument("TARS_v0_2")
+# --- Dims (mm) ---
+# Plattform
+PLAT_X = 2967.0
+PLAT_Y = 2483.0
+PLAT_Z = 30.0     # Annahme: 30 mm Deckplatte (nur Proxy)
 
-# Beispiel-Objekt (ersetzt durch deinen tatsächlichen Aufbau)
-cube = Part.makeBox(10, 10, 10)
-feat = App.ActiveDocument.addObject("Part::Feature", "Placeholder")
-feat.Shape = cube
+# Schubladenbox (Einzelbox)
+BOX_X = 521.0
+BOX_Y = 717.0
+BOX_Z = 130.0
+# Einschubkasten (Hülle/Proxy etwas größer als Box)
+SLOT_WALL = 3.0
+SLOT_X = BOX_X + 2*SLOT_WALL
+SLOT_Y = BOX_Y + 2*SLOT_WALL
+SLOT_Z = 2*BOX_Z + 3*SLOT_WALL  # 2 Boxen übereinander + Zwischenluft/Wand
+
+# Anordnung Ebene 1
+NUM_SLOTS_X_PER_SIDE = 5
+NUM_SIDES = 2
+SLOT_GAP_X = 20.0   # Fuge zwischen Slots in x
+SIDE_CLEAR_Y = 40.0 # Abstand zur Außenkante in y innen
+CENTER_GAP_Y = 60.0 # Abstand zwischen linker und rechter Slot-Reihe
+
+# Ebene 2 (Swivel-Launch-Box Außenmaße in Transportlage 0°/0°)
+SLB_X = 970.0
+SLB_Y = 960.0
+SLB_Z = 923.0
+SLB_PER_SIDE = 1    # einfach starten; später erweiterbar
+SLB_STANDOFF_Z = 200.0  # Abstand zwischen Slot-Oberkante und Ebene2 (Proxy)
+
+doc = App.newDocument("TARS_v0_2")
+a = doc.addObject
+
+def mk_box(name, dx, dy, dz, px=0, py=0, pz=0):
+    shape = Part.makeBox(dx, dy, dz)
+    obj = a("Part::Feature", name)
+    obj.Shape = shape
+    obj.Placement.Base.x = px
+    obj.Placement.Base.y = py
+    obj.Placement.Base.z = pz
+    return obj
+
+# Ursprung: x=0, y=0 vorne links (Fahrerseite), z=0 = Fläche Ebene1 (Oberseite Deckplatte laut deiner Def.)
+# Ich lege die Deckplatte nach unten (z negativ), damit die Oberseite z=0 bleibt.
+platform = mk_box("Platform", PLAT_X, PLAT_Y, PLAT_Z, 0, 0, -PLAT_Z)
+
+# Hilfsmaße für Slot-Positionen
+# Wir platzieren die beiden Slot-Reihen entlang y: eine links (fahrerseitig) nahe y=0, eine rechts an der Beifahrerseite.
+# Jede Reihe enthält 5 Einschubkästen entlang x. Öffnungen zeigen nach außen (±y).
+slot_total_x = NUM_SLOTS_X_PER_SIDE * SLOT_X + (NUM_SLOTS_X_PER_SIDE - 1) * SLOT_GAP_X
+front_margin_x = max(0.0, (PLAT_X - slot_total_x) / 2.0)  # mittige Verteilung in x
+
+# y-Positionen der Reihen
+left_row_y = SIDE_CLEAR_Y
+right_row_y = PLAT_Y - SIDE_CLEAR_Y - SLOT_Y
+
+slots = []
+boxes = []
+
+for side_idx, base_y, y_dir, side_label in [
+    (0, left_row_y, -1, "L"),    # links, offene Seite nach y<0 (außen)
+    (1, right_row_y, +1, "R")    # rechts, offene Seite nach y>0 (außen)
+]:
+    for i in range(NUM_SLOTS_X_PER_SIDE):
+        px = front_margin_x + i * (SLOT_X + SLOT_GAP_X)
+        py = base_y
+        pz = 0.0  # Unterkante Slot bündig mit Ebene1-Oberfläche (z=0)
+        slot = mk_box(f"Slot_{side_label}_{i+1}", SLOT_X, SLOT_Y, SLOT_Z, px, py, pz)
+        slots.append(slot)
+
+        # Zwei Schubladenboxen im Slot (übereinander)
+        # Leichte Luft zu den Wänden (1 mm), Öffnung nach außen — proxyhaft lassen wir sie als Quader im Slotvolumen
+        inset = 1.0
+        bx = px + SLOT_WALL + inset
+        by = py + SLOT_WALL + inset
+        bz1 = pz + SLOT_WALL + inset
+        bz2 = bz1 + BOX_Z + SLOT_WALL  # zweite Ebene
+        box1 = mk_box(f"Drawer_{side_label}_{i+1}_A", BOX_X, BOX_Y, BOX_Z, bx, by, bz1)
+        box2 = mk_box(f"Drawer_{side_label}_{i+1}_B", BOX_X, BOX_Y, BOX_Z, bx, by, bz2)
+        boxes.extend([box1, box2])
+
+# Ebene 2 Trägerhöhe: Oberkante Slots + Standoff
+top_of_slots_z = SLOT_Z
+level2_z = top_of_slots_z + SLB_STANDOFF_Z
+
+# Platzierung Swivel-Launch-Boxen (Transportlage 0°/0°). Je Seite 1 Stück, mittig über den Slots.
+slbs = []
+for side_idx, side_label, base_y in [
+    (0, "L", left_row_y),
+    (1, "R", right_row_y)
+]:
+    # mittige x-Position über der Slot-Reihe
+    slb_px = (PLAT_X - SLB_X) / 2.0
+    # y: mittig über der jeweiligen Slot-Reihe
+    row_center_y = base_y + SLOT_Y/2.0
+    slb_py = row_center_y - SLB_Y/2.0
+    slb_pz = level2_z
+    slb = mk_box(f"SLB_{side_label}_1_transport", SLB_X, SLB_Y, SLB_Z, slb_px, slb_py, slb_pz)
+    slbs.append(slb)
+
+# Gruppierung (optional, für Ordnung im Baum)
+grp_slots = a("App::DocumentObjectGroup", "G_Ebene1_Slots")
+grp_slots.addObjects(slots)
+grp_drawers = a("App::DocumentObjectGroup", "G_Ebene1_Drawers")
+grp_drawers.addObjects(boxes)
+grp_slb = a("App::DocumentObjectGroup", "G_Ebene2_SLBs")
+grp_slb.addObjects(slbs)
+grp_all = a("App::DocumentObjectGroup", "Assembly_Proxy")
+grp_all.addObjects([platform, grp_slots, grp_drawers, grp_slb])
+
 App.ActiveDocument.recompute()
 
-# Speichern
+# Export
 fcstd_path = os.path.join(build_dir, "TARS_v0.2.FCStd")
 App.ActiveDocument.saveAs(fcstd_path)
+
+# Für STEP: exportiere die sichtbaren Feature-Objekte (nur Geometrie, keine Gruppen)
+to_export = [platform] + slots + boxes + slbs
 step_path = os.path.join(build_dir, "TARS_v0.2.step")
-Part.export([feat], step_path)
+Part.export(to_export, step_path)
 
 print(f"Saved FCStd: {fcstd_path}")
 print(f"Saved STEP:  {step_path}")
-
-# Sauber schließen
 App.closeDocument(App.ActiveDocument.Name)
-
-
-try:
-    import FreeCAD as App
-    import Part
-except Exception as e:
-    print("FreeCAD modules not available in this environment:", e)
-    sys.exit(1)
-
-OUT_DIR = os.path.join("01_CAD", "build")
-os.makedirs(OUT_DIR, exist_ok=True)
-DOC_NAME = "TARS_v0_2"
-FCSTD_PATH = os.path.join(OUT_DIR, "TARS_v0.2.FCStd")
-STEP_PATH  = os.path.join(OUT_DIR, "TARS_v0.2.step")
-
-doc = App.newDocument(DOC_NAME)
-
-# Parameters (mm, kg, deg)
-p = doc.addObject('Spreadsheet::Sheet','Params')
-params = {
-    # Platform
-    'plat_x': 2967.0, 'plat_y': 2483.0, 'plat_t': 12.0,  # vorläufig: 12 mm Plattenäquivalent
-    # Drawer box
-    'dbx_x': 521.0, 'dbx_y': 717.0, 'dbx_z': 130.0, 'dbx_m_empty': 16.0, 'dbx_m_full': 70.0,
-    # Swivel-launch box (x=970, y=960, z=923 Fahr-0° Lage)
-    'slb_x': 970.0, 'slb_y': 960.0, 'slb_z': 923.0, 'slb_t': 6.0, 'slb_m_empty': 340.0, 'slb_m_full': 690.0,
-    # Clearances
-    'gap_side': 40.0, 'gap_front': 60.0, 'gap_rear': 60.0, 'gap_between_L1_L2': 50.0,
-    # L2 posts / plate
-    'post_shs': 100.0, 'post_t': 6.3, 'deck_to_L2': 550.0,
-    # Locks
-    'lock_h_0': 0.0, 'lock_h_33': 33.0, 'lock_h_90': 90.0, 'lock_v_0': 0.0, 'lock_v_49': 49.0,
-}
-for k,v in params.items():
-    p.set(k, str(v))
-p.recompute()
-
-def mk_box(name, dx, dy, dz, pos=(0,0,0)):
-    b = doc.addObject("Part::Box", name)
-    b.Length = dx; b.Width = dy; b.Height = dz
-    b.Placement.Base.x = pos[0]; b.Placement.Base.y = pos[1]; b.Placement.Base.z = pos[2]
-    return b
-
-# Coordinate system: x=0,y=0 front-left; z=0 = top of Level-1 deck
-plat = mk_box("L1_Deck", float(p.get("plat_x")), float(p.get("plat_y")), float(p.get("plat_t")), (0,0,-float(p.get("plat_t"))))
-
-# Level 1: drawer bay envelopes (5 Kästen je Seite, 2 Ebenen übereinander = 10/Seite)
-dbx_x = float(p.get("dbx_x")); dbx_y = float(p.get("dbx_y")); dbx_z = float(p.get("dbx_z"))
-gap_side = float(p.get("gap_side")); gap_front = float(p.get("gap_front")); gap_rear = float(p.get("gap_rear"))
-plat_x = float(p.get("plat_x")); plat_y = float(p.get("plat_y"))
-usable_x = plat_x - gap_front - gap_rear
-pitch_x = usable_x / 5.0  # 5 Einschubkästen in Längsrichtung
-left_origin  = (gap_front, gap_side, 0.0)
-right_origin = (gap_front, plat_y - gap_side - dbx_y, 0.0)
-
-drawer_envs = []
-for i in range(5):
-    x_i = gap_front + i*pitch_x + 0.5*(pitch_x - dbx_x)
-    # Zwei übereinander: z=0 und z=dbx_z+10 (10 mm Zwischenraum)
-    z0 = 0.0; z1 = dbx_z + 10.0
-    # Links (öffnet nach außen = xz‑Ebene zur Seite)
-    drawer_envs.append(mk_box(f"L1_Drawer_L_{i}_A", dbx_x, dbx_y, dbx_z, (x_i, gap_side, z0)))
-    drawer_envs.append(mk_box(f"L1_Drawer_L_{i}_B", dbx_x, dbx_y, dbx_z, (x_i, gap_side, z1)))
-    # Rechts
-    drawer_envs.append(mk_box(f"L1_Drawer_R_{i}_A", dbx_x, dbx_y, dbx_z, (x_i, plat_y-gap_side-dbx_y, z0)))
-    drawer_envs.append(mk_box(f"L1_Drawer_R_{i}_B", dbx_x, dbx_y, dbx_z, (x_i, plat_y-gap_side-dbx_y, z1)))
-
-# Level 2: posts + top plate
-post_shs = float(p.get("post_shs")); deck_to_L2 = float(p.get("deck_to_L2"))
-post_h = deck_to_L2
-post_positions = []
-# 4 Stützen je Seite (insgesamt 8), verteilt entlang x; seitlich oberhalb der L1‑Kästen
-for side in ["L","R"]:
-    y = gap_side if side=="L" else (plat_y - gap_side - post_shs)
-    for i in range(4):
-        x = gap_front + (i+0.5)*(usable_x/4.0) - 0.5*post_shs
-        post_positions.append((x, y, 0.0))
-
-posts = []
-for idx,(x,y,z) in enumerate(post_positions):
-    posts.append(mk_box(f"L2_Post_{idx:02d}", post_shs, post_shs, post_h, (x,y,0.0)))
-
-# L2 Deckplatte (H‑Trägerplatte kommt in v0.3, hier eine volle Platte als Platzhalter)
-L2_plate = mk_box("L2_Plate", plat_x-2*gap_front, plat_y-2*gap_side, 10.0, (gap_front, gap_side, deck_to_L2))
-
-# Swivel‑Launch‑Box envelopes (2 Stück – links und rechts, auf L2_Plate)
-slb_x = float(p.get("slb_x")); slb_y = float(p.get("slb_y")); slb_z = float(p.get("slb_z"))
-# Fahrstellung 0°/0°: offene Seite gegen Fahrtrichtung (xz‑Ebene)
-# Wir setzen die Boxen mittig links/rechts auf L2_Plate mit etwas Rand
-y_left = gap_side + 80.0
-y_right = plat_y - gap_side - slb_y - 80.0
-x_mid = gap_front + 0.5*(plat_x - 2*gap_front - slb_x)
-z_L2 = deck_to_L2 + 10.0  # Oberkante L2_Plate
-
-slb_L = mk_box("SLB_Left_0_0", slb_x, slb_y, slb_z, (x_mid, y_left, z_L2))
-slb_R = mk_box("SLB_Right_0_0", slb_x, slb_y, slb_z, (x_mid, y_right, z_L2))
-
-# Platzhalter für weitere Lock‑Posen (nur Dummy‑Körper, kinematik folgt in v0.3)
-slb_L_90 = mk_box("SLB_Left_90_0", slb_y, slb_x, slb_z, (x_mid, y_left, z_L2))  # 90° horiz. gedreht (Flächen getauscht)
-slb_R_90 = mk_box("SLB_Right_90_0", slb_y, slb_x, slb_z, (x_mid, y_right, z_L2))
-# 33°/49° werden in v0.3 als kinematische Pose umgesetzt (hier nur Marker)
-marker_33_49_L = mk_box("SLB_Left_33_49_marker", 50, 50, 50, (x_mid-60, y_left-60, z_L2+slb_z+60))
-marker_33_49_R = mk_box("SLB_Right_33_49_marker", 50, 50, 50, (x_mid-60, y_right-60, z_L2+slb_z+60))
-
-doc.recompute()
-# Save FCStd and export STEP
-doc.saveAs(FCSTD_PATH)
-shape = doc.getObject("L1_Deck").Shape
-# Für STEP: gesamte Dok‑Fusion (einfacher Export aller sichtbaren Körper)
-import PART
-all_shapes = [o.Shape for o in doc.Objects if hasattr(o, "Shape")]
-compound = Part.makeCompound(all_shapes)
-Part.export([compound], STEP_PATH)
-print("Wrote:", FCSTD_PATH, "and", STEP_PATH)
