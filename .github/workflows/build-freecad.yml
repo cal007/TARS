@@ -1,37 +1,29 @@
-name: build-freecad
-on:
-  workflow_dispatch:
-  push:
-    paths:
-      - '01_CAD/src/**.py'
-      - '.github/workflows/build-freecad.yml'
-      - '03_Docs/**'
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Fetch FreeCAD 1.0.0 AppImage + SHA256 (SourceForge)
         run: |
           set -euo pipefail
           APPIMG="FreeCAD_1.0.0-conda-Linux-x86_64-py311.AppImage"
           SHAFILE="${APPIMG}-SHA256.txt"
-          # -L folgt Redirects von SourceForge
           curl -L -o "${APPIMG}" "https://sourceforge.net/projects/freecad.mirror/files/1.0.0/${APPIMG}/download"
           curl -L -o "${SHAFILE}" "https://sourceforge.net/projects/freecad.mirror/files/1.0.0/${SHAFILE}/download"
           sha256sum -c <(sed -E "s#^([0-9a-f]+) .*#\1  ${APPIMG}#g" "${SHAFILE}")
           chmod +x "${APPIMG}"
-          # Entpacken, damit FreeCADCmd sicher im PATH ist
           ./"${APPIMG}" --appimage-extract
-          echo "${GITHUB_WORKSPACE}/squashfs-root/usr/bin" >> "$GITHUB_PATH"
+          # Debug: zeige, was im usr/bin liegt
+          ls -la "${GITHUB_WORKSPACE}/squashfs-root/usr/bin"
 
-      - name: Build FCStd and STEP (FreeCADCmd)
+      - name: Build FCStd and STEP (FreeCADCmd from AppImage)
         run: |
+          set -euo pipefail
           mkdir -p 01_CAD/build
-          FreeCADCmd -c 01_CAD/src/build_tars_fcstd.py
+          # Finde FreeCADCmd (oder FreeCADCmd.real) im entpackten AppImage
+          FC_BIN="$(find "${GITHUB_WORKSPACE}/squashfs-root/usr/bin" -maxdepth 1 -type f -iname 'FreeCADCmd*' | head -n1)"
+          if [[ -z "${FC_BIN}" ]]; then
+            echo "FreeCADCmd nicht gefunden in squashfs-root/usr/bin"; ls -la "${GITHUB_WORKSPACE}/squashfs-root/usr/bin"; exit 127
+          fi
+          chmod +x "${FC_BIN}"
+          echo "Using: ${FC_BIN}"
+          "${FC_BIN}" --version || true
+          "${FC_BIN}" -c 01_CAD/src/build_tars_fcstd.py
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
