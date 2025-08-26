@@ -1,3 +1,19 @@
+name: build-freecad
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '01_CAD/src/**.py'
+      - '.github/workflows/build-freecad.yml'
+      - '03_Docs/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Fetch FreeCAD 1.0.0 AppImage + SHA256 (SourceForge)
         run: |
           set -euo pipefail
@@ -33,3 +49,4 @@
             01_CAD/build/TARS_v0.2.FCStd
             01_CAD/build/TARS_v0.2.step
           if-no-files-found: error
+
