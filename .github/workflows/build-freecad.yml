@@ -34,18 +34,23 @@ jobs:
 
 
       - name: Build FCStd and STEP (FreeCADCmd from AppImage)
+        env:
+          COLLISION_OK: "1"   # verhindert Abbruch bei Kollisions-Guard, exportiert trotzdem
+          DEBUG: "1"          # Debug-Ausgaben (Base/Pivot/BoundingBox)
+          SLB_POSE: transport # oder load/use
         run: |
           set -euo pipefail
           mkdir -p 01_CAD/build
-          # Finde FreeCADCmd (oder FreeCADCmd.real) im entpackten AppImage
           FC_BIN="$(find "${GITHUB_WORKSPACE}/squashfs-root/usr/bin" -maxdepth 1 -type f -iname 'FreeCADCmd*' | head -n1)"
           if [[ -z "${FC_BIN}" ]]; then
             echo "FreeCADCmd nicht gefunden in squashfs-root/usr/bin"; ls -la "${GITHUB_WORKSPACE}/squashfs-root/usr/bin"; exit 127
           fi
           chmod +x "${FC_BIN}"
           echo "Using: ${FC_BIN}"
+          echo "Env: COLLISION_OK=${COLLISION_OK} DEBUG=${DEBUG} SLB_POSE=${SLB_POSE}"
           "${FC_BIN}" --version || true
           "${FC_BIN}" -c 01_CAD/src/build_tars_fcstd.py
+
 
       - name: Inspect build outputs
         run: |
