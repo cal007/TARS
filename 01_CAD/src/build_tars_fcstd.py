@@ -67,6 +67,12 @@ COL_D = 100.0
 ADD_MID_X = True
 ADD_MID_Y = True
 
+# Neue Kippachsen-Parameter (oberhalb der Funktionen einfügen)
+STANDOFF_S = 60.0        # zusätzliche Distanz zwischen H-Plate und SLB-Unterkante [mm]
+PIVOT_OVER_TOP = 80.0    # Achshöhe über SLB-Oberkante [mm]
+PIVOT_X_OFFSET = 385.0   # + nach vorn, von SLB-Mitte [mm]
+CLEAR_USE = 20.0         # geforderte min. Bodenfreiheit bei 49° [mm]
+
 # Active SLB pose (transport | load | use)
 ACTIVE_POSE = os.environ.get("SLB_POSE", "transport").strip().lower()
 if ACTIVE_POSE not in ("transport", "load", "use"):
@@ -178,15 +184,6 @@ def slb_pose_footprint(dx, dy, dz, pose):
         return fx, fy
     return dx, dy
 
-# Neue Kippachsen-Parameter (oberhalb der Funktionen einfügen)
-STANDOFF_S = 60.0        # zusätzliche Distanz zwischen H-Plate und SLB-Unterkante [mm]
-PIVOT_OVER_TOP = 80.0    # Achshöhe über SLB-Oberkante [mm]
-PIVOT_X_OFFSET = 385.0   # + nach vorn, von SLB-Mitte [mm]
-CLEAR_USE = 20.0         # geforderte min. Bodenfreiheit bei 49° [mm]
-
-# Passe die SLB-Basisz an (wo der SLB-"Kasten" startet)
-slb_z0 = lv2_top_z + HPL_THK + STANDOFF_S  # statt nur +HPL_THK
-
 def slb_apply_pose(obj, base_px, base_py, base_pz, pose):
     # Basis: Unterkante SLB bei base_pz
     # Trunnion-Achse:
@@ -247,7 +244,7 @@ def place_side(side_label, row_center_y):
         hplates.extend([hp, hp_ring] + hp_dets)
 
         # SLB-Körper (einmal)
-        slb_z0 = lv2_top_z + HPL_THK
+        slb_z0 = lv2_top_z + HPL_THK + STANDOFF_S
         slb = mk_box(f"SLB_{side_label}_{j}", SLB_X, SLB_Y, SLB_Z, px, py, slb_z0)
         # Pose anwenden (ändert nur Placement)
         slb_apply_pose(slb, px, py, slb_z0, ACTIVE_POSE)
