@@ -13,15 +13,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install FreeCAD 1.0 (Ubuntu PPA)
+      - name: Fetch FreeCAD 1.0 AppImage
         run: |
-          sudo add-apt-repository -y ppa:freecad-maintainers/freecad-stable
-          sudo apt-get update
-          sudo apt-get install -y freecad freecad-python3
+          FC_VER="1.0"
+          # Download offizielles AppImage (Stable). URL ggf. anpassen, falls Release-Name sich ändert.
+          wget -O FreeCAD.AppImage https://github.com/FreeCAD/FreeCAD/releases/download/1.0.0/FreeCAD_1.0.0-Linux-x86_64.AppImage
+          chmod +x FreeCAD.AppImage
+          # Entpacken, damit wir FreeCADCmd direkt aufrufen können (stabiler in CI)
+          ./FreeCAD.AppImage --appimage-extract
+          echo "$PWD/squashfs-root/usr/bin" >> $GITHUB_PATH
 
-      - name: Build FCStd and STEP
+      - name: Build FCStd and STEP (FreeCADCmd)
         run: |
-          python3 01_CAD/src/build_tars_fcstd.py
+          mkdir -p 01_CAD/build
+          FreeCADCmd -c 01_CAD/src/build_tars_fcstd.py
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
