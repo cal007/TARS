@@ -19,6 +19,7 @@ ACTIVE_POSE = os.environ.get("SLB_POSE", "transport").lower()  # transport | loa
 if ACTIVE_POSE not in ("transport","load","use"):
     ACTIVE_POSE = "transport"
 DEBUG = os.environ.get("DEBUG","0") == "1"
+COLLISION_OK = os.environ.get("COLLISION_OK","0") == "1"
 
 DOC = App.newDocument("TARS_v0_9")
 add = DOC.addObject
@@ -209,6 +210,14 @@ place_slb(cx1, row_center_L, "L1")
 place_slb(cx2, row_center_L, "L2")
 place_slb(cx1, row_center_R, "R1")
 place_slb(cx2, row_center_R, "R2")
+    z_min = min(v.Z for v in slb.Shape.BoundBox.getVertices())
+    if z_min < lv2_top_z - 0.1:
+        msg = (f"Collision: SLB_{tag} z_min={z_min:.2f} < lv2_top_z={lv2_top_z:.2f} "
+               f"(pose={ACTIVE_POSE}) — check PIVOT_* or STANDOFF_S")
+        if COLLISION_OK:
+            print("[WARN]", msg)
+        else:
+            raise RuntimeError(msg)
 
 # ---------------- Stützen (Dummy) ----------------
 columns = []
@@ -234,6 +243,7 @@ assembly = add("App::DocumentObjectGroup", "Assembly_Proxy"); assembly.addObject
 App.ActiveDocument.recompute()
 
 # ---------------- Export ----------------
+print("Build dir:", BUILD_DIR)
 fcstd = os.path.join(BUILD_DIR, "TARS_v0.9.FCStd")
 App.ActiveDocument.saveAs(fcstd)
 
