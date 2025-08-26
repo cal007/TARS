@@ -67,39 +67,52 @@ COL_D = 100.0
 ADD_MID_X = True
 ADD_MID_Y = True
 
-# Active SLB pose (transport | load | use)
-ACTIVE_POSE = os.environ.get("SLB_POSE", "transport").strip().lower()
-if ACTIVE_POSE not in ("transport", "load", "use"):
-    ACTIVE_POSE = "transport"
+# Neue Kippachsen-Parameter (oberhalb der Funktionen einfügen)
+STANDOFF_S = 60.0        # zusätzliche Distanz zwischen H-Plate und SLB-Unterkante [mm]
+PIVOT_OVER_TOP = 80.0    # Achshöhe über SLB-Oberkante [mm]
+PIVOT_X_OFFSET = 385.0   # + nach vorn, von SLB-Mitte [mm]
+CLEAR_USE = 20.0         # geforderte min. Bodenfreiheit bei 49° [mm]
 
-# ---------------- Level 1: Platform, slots, drawers ----------------
-platform = mk_box("Platform", PLAT_X, PLAT_Y, PLAT_T, 0, 0, -PLAT_T)
+# Passe die SLB-Basisz an (wo der SLB-"Kasten" startet)
+slb_z0 = lv2_top_z + HPL_THK + STANDOFF_S  # statt nur +HPL_THK
 
-slots, drawers = [], []
+def slb_apply_pose(obj, base_px, base_py, base_pz, pose):
+    # Basis: Unterkante SLB bei base_pz
+    # Trunnion-Achse:
+    z_p = SLB_Z + PIVOT_OVER_TOP                 # von SLB-Unterkante
+    h_p = base_pz + z_p                          # Achshöhe über Ebene-2
+    x_p = base_px + SLB_X/2.0 + PIVOT_X_OFFSET   # Weltkoordinate x der Achse
+    y_p = base_py + SLB_Y/2.0                    # Achse läuft entlang y
 
-slot_row_len = NUM_SLOTS_X_PER_SIDE * SLOT_X + (NUM_SLOTS_X_PER_SIDE - 1) * SLOT_GAP_X
-slot_row_x0 = (PLAT_X - slot_row_len) / 2.0
+    # Rotationen um die Trunnion-Achse (App.Vector(0,1,0))
+    pivot = App.Vector(x_p, y_p, h_p)
 
-slot_y_left  = SIDE_CLEAR_Y
-slot_y_right = PLAT_Y - SIDE_CLEAR_Y - SLOT_Y
-slot_z0 = 0.0
+    rot_t = App.Rotation()                        # 0°/0°
+    rot_l = App.Rotation(App.Vector(0,0,1), 90)   # 90° horizontal um z DURCH pivot? -> erst horizontal drehen
+    rot_u = App.Rotation(App.Vector(0,1,0), 49)   # 49° vertikal um y durch pivot
 
-def add_slot_row(label, y0):
-    for i in range(NUM_SLOTS_X_PER_SIDE):
-        x0 = slot_row_x0 + i * (SLOT_X + SLOT_GAP_X)
-        s = mk_box(f"Slot_{label}_{i+1}", SLOT_X, SLOT_Y, SLOT_Z, x0, y0, slot_z0)
-        slots.append(s)
-        # two drawers (Proxy)
-        inx = x0 + SLOT_WALL
-        iny = y0 + SLOT_WALL
-        inz1 = slot_z0 + SLOT_WALL
-        inz2 = inz1 + BOX_Z + SLOT_WALL
-        d1 = mk_box(f"Drawer_{label}_{i+1}_1", BOX_X, BOX_Y, BOX_Z, inx, iny, inz1)
-        d2 = mk_box(f"Drawer_{label}_{i+1}_2", BOX_X, BOX_Y, BOX_Z, inx, iny, inz2)
-        drawers.extend([d1, d2])
+    # Reihenfolge: horizontal (0/33/90) um z durch Pivot, dann vertikal 49° um y durch Pivot
+    if pose == "transport":    # 0°/0°
+        obj.Placement = App.Placement(App.Vector(base_px, base_py, base_pz), App.Rotation())
+    elif pose == "load":       # 90°/0°
+        place = App.Placement(pivot, rot_l, pivot)
+        place.Base = App.Vector(base_px, base_py, base_pz)
+        obj.Placement = place
+    else:                      # use: 33°/49°
+        rot_z33 = App.Rotation(App.Vector(0,0,1), 33)
+        rot_combo = rot_z33.multiply(rot_u)
+        obj.Placement = App.Placement(pivot, rot_combo, pivot)
 
-add_slot_row("L", slot_y_left)
-add_slot_row("R", slot_y_right)
+    # Properties speichern
+    for n in ("TransportPlacement","LoadPlacement","UsePlacement"):
+        if not hasattr(obj, n):
+            obj.addProperty("App::PropertyPlacement", n, "SLB", "Pose gespeichert")
+    obj.TransportPlacement = App.Placement(App.Vector(base_px, base_py, base_pz), App.Rotation())
+    pl_load = App.Placement(pivot, rot_l, pivot); pl_load.Base = App.Vector(base_px, base_py, base_pz)
+    obj.LoadPlacement = pl_load
+    rot_combo = App.Rotation(App.Vector(0,0,1), 33).multiply(App.Rotation(App.Vector(0,1,0), 49))
+    obj.UsePlacement = App.Placement(pivot, rot_combo, pivot)
+
 
 # Rails (durchgehend)
 rail_z0 = slot_z0 + SLOT_Z
