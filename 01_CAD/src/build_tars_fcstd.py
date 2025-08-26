@@ -3,54 +3,15 @@ import os, math
 import FreeCAD as App
 import Part
 
-# --- Pfade ---
+# ---------- Pfade ----------
 repo_root = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
 build_dir = os.path.join(repo_root, "01_CAD", "build")
 os.makedirs(build_dir, exist_ok=True)
 
-# --- Parameter (mm) ---
-# Plattform
-PLAT_X = 2967.0
-PLAT_Y = 2483.0
-PLAT_Z = 30.0       # Proxy-Dicke Deckplatte; Oberseite = z=0 => Platte liegt nach unten
-
-# Schubladenbox
-BOX_X = 521.0
-BOX_Y = 717.0
-BOX_Z = 130.0
-
-# Einschubkasten (Proxy)
-SLOT_WALL = 3.0
-SLOT_X = BOX_X + 2*SLOT_WALL
-SLOT_Y = BOX_Y + 2*SLOT_WALL
-SLOT_Z = 2*BOX_Z + 3*SLOT_WALL  # 2 Boxen übereinander
-
-NUM_SLOTS_X_PER_SIDE = 5
-SLOT_GAP_X = 20.0
-SIDE_CLEAR_Y = 40.0
-
-# Ebene 2 / SLB
-SLB_X = 970.0
-SLB_Y = 960.0
-SLB_Z = 923.0
-SLB_PER_SIDE = 2
-SLB_STANDOFF_Z = 80.0          # Abstand zwischen Slot-Oberkante und Unterseite H-Platte (reduziert von 200)
-PLATE_THK = 12.0               # H-Platten-Dicke
-H_FLANGE_W = 80.0              # Breite der seitlichen H-Flansche (y)
-H_WEB_W = 120.0                # Breite des H-Stegs (y)
-H_EDGE_INSET_X = 0.0           # H-Platte so groß wie SLB footprint (kannst du positiv machen, wenn überstand gewünscht)
-
-# Stützen (4 je Seite = 8 total), im Mittelgang
-COL_W = 80.0
-COL_D = 80.0
-COL_MARGIN_AISLE = 40.0        # Abstand zur Slot-Reihe in den Mittelgang hinein
-COL_INSET_X = 50.0             # Abstand von SLB-Vorder-/Hinterkante für Stützen in x
-
 doc = App.newDocument("TARS_v0_2")
 a = doc.addObject
 
-def mk_box(name, dx, dy, dz, px=0, py=0, pz=0):
-    shape = Part.makeBox(dx, dy, dz)
+def mk_feat(name, shape, px=0, py=0, pz=0):
     obj = a("Part::Feature", name)
     obj.Shape = shape
     obj.Placement.Base.x = px
@@ -58,141 +19,199 @@ def mk_box(name, dx, dy, dz, px=0, py=0, pz=0):
     obj.Placement.Base.z = pz
     return obj
 
-# --- Plattform ---
+def mk_box(name, dx, dy, dz, px=0, py=0, pz=0):
+    return mk_feat(name, Part.makeBox(dx, dy, dz), px, py, pz)
+
+def clamp(v, vmin, vmax): return max(vmin, min(v, vmax))
+
+# ---------- Parameter (mm) ----------
+# Plattform (Ebene 1)
+PLAT_X = 2967.0
+PLAT_Y = 2483.0
+PLAT_Z = 30.0                 # Deckplatte; Oberseite = z=0 -> Platte nach unten
+
+# Schubladen / Slots auf Ebene 1
+BOX_X, BOX_Y, BOX_Z = 521.0, 717.0, 130.0
+SLOT_WALL = 3.0
+SLOT_X = BOX_X + 2*SLOT_WALL
+SLOT_Y = BOX_Y + 2*SLOT_WALL
+SLOT_Z = 2*BOX_Z + 3*SLOT_WALL
+NUM_SLOTS_X_PER_SIDE = 5
+SLOT_GAP_X = 20.0
+SIDE_CLEAR_Y = 40.0
+
+# Ebene 2 (Deckplatte + H-Plate + SLB)
+LV2_STANDOFF_Z = 50.0         # Abstand: Oberkante Slot -> Unterseite Ebene-2-Platte
+LV2_PLATE_THK = 20.0          # Dicke Ebene-2-Platte
+# SLB Außenmaße (Transportlage 0°/0°): offene Seite ist 923x960, 970 entlang x
+SLB_X, SLB_Y, SLB_Z = 970.0, 960.0, 923.0
+SLB_PER_SIDE = 2              # 4 total
+
+# H-Plate (Proxy nach Foto)
+HPL_THK = 12.0
+HPL_X = SLB_X + 120.0         # überstehend in x für Langlöcher
+HPL_Y = SLB_Y + 80.0          # überstehend in y
+HPL_SLOT_W = 30.0             # Langlochbreite
+HPL_SLOT_L = 160.0            # Langlochlänge
+HPL_SLOT_OFF_Y = 40.0         # Abstand zur Plattenkante in y
+HPL_CENTER_D = 520.0          # großer Durchbruch (swivel window)
+HPL_RING_OD = 680.0           # äußerer Referenzring
+HPL_RING_ID = 600.0           # innerer Referenzring
+HPL_RING_THK = 6.0            # Ring-"Wulst" (als Relief)
+DETENT_W, DETENT_L, DETENT_H = 22.0, 40.0, 8.0  # 0°/33°/90° Markierungen/Blöcke
+
+# Stützen
+COL_W = 100.0
+COL_D = 100.0
+ADD_MID_X = True
+ADD_MID_Y = True
+
+# ---------- Ebene 1: Plattform ----------
 platform = mk_box("Platform", PLAT_X, PLAT_Y, PLAT_Z, 0, 0, -PLAT_Z)
 
-# --- Slots & Schubladen (Ebene 1) ---
+# ---------- Slots + Drawers ----------
 slot_total_x = NUM_SLOTS_X_PER_SIDE * SLOT_X + (NUM_SLOTS_X_PER_SIDE - 1) * SLOT_GAP_X
 front_margin_x = max(0.0, (PLAT_X - slot_total_x) / 2.0)
-
 left_row_y = SIDE_CLEAR_Y
 right_row_y = PLAT_Y - SIDE_CLEAR_Y - SLOT_Y
 
-slots = []
-boxes = []
-
-for side_idx, base_y, side_label in [
-    (0, left_row_y, "L"),
-    (1, right_row_y, "R")
-]:
+slots, drawers = [], []
+for side_idx, base_y, side_label in [(0, left_row_y, "L"), (1, right_row_y, "R")]:
     for i in range(NUM_SLOTS_X_PER_SIDE):
         px = front_margin_x + i * (SLOT_X + SLOT_GAP_X)
         py = base_y
-        pz = 0.0
-        slot = mk_box(f"Slot_{side_label}_{i+1}", SLOT_X, SLOT_Y, SLOT_Z, px, py, pz)
+        slot = mk_box(f"Slot_{side_label}_{i+1}", SLOT_X, SLOT_Y, SLOT_Z, px, py, 0.0)
         slots.append(slot)
-
-        # zwei Schubladen im Slot
         inset = 1.0
         bx = px + SLOT_WALL + inset
         by = py + SLOT_WALL + inset
-        bz1 = pz + SLOT_WALL + inset
+        bz1 = SLOT_WALL + inset
         bz2 = bz1 + BOX_Z + SLOT_WALL
-        box1 = mk_box(f"Drawer_{side_label}_{i+1}_A", BOX_X, BOX_Y, BOX_Z, bx, by, bz1)
-        box2 = mk_box(f"Drawer_{side_label}_{i+1}_B", BOX_X, BOX_Y, BOX_Z, bx, by, bz2)
-        boxes.extend([box1, box2])
+        drawers.append(mk_box(f"Drawer_{side_label}_{i+1}_A", BOX_X, BOX_Y, BOX_Z, bx, by, bz1))
+        drawers.append(mk_box(f"Drawer_{side_label}_{i+1}_B", BOX_X, BOX_Y, BOX_Z, bx, by, bz2))
 
-# Oberkante Slots (z=0 am Boden der Slots, daher top bei SLOT_Z)
 top_of_slots_z = SLOT_Z
 
-# --- Ebene 2 Höhe ---
-level2_base_z = top_of_slots_z + SLB_STANDOFF_Z         # Unterseite der H-Platte
-slb_base_z = level2_base_z + PLATE_THK                   # Unterseite der SLB
+# ---------- Ebene 2: Deckplatte ----------
+lv2_base_z = top_of_slots_z + LV2_STANDOFF_Z           # Unterseite Ebene-2-Platte
+lv2_plate = mk_box("Level2_Plate", PLAT_X, PLAT_Y, LV2_PLATE_THK, 0, 0, lv2_base_z)
+lv2_top_z = lv2_base_z + LV2_PLATE_THK                  # Oberseite Ebene-2-Platte
 
-# --- SLB-Platzierung: je Seite 2 Stück, komplett innerhalb der Plattform (y clamp) ---
-def clamp(val, vmin, vmax): return max(vmin, min(val, vmax))
+# ---------- H-Plate (Proxy, mit Langlöchern, zentralem Durchbruch, Ring, Detents) ----------
+def make_hplate(name_prefix):
+    # Grundplatte
+    base = Part.makeBox(HPL_X, HPL_Y, HPL_THK)
 
-slbs = []
-hplates = []
+    # Zentrale Öffnung (kreisrund)
+    hole = Part.makeCylinder(HPL_CENTER_D/2.0, HPL_THK, App.Vector(HPL_X/2, HPL_Y/2, 0))
+    base = base.cut(hole)
 
-# x-Positionen: zwei SLBs gleichmäßig über den Slot-Bereich je Seite
-# Nutze die Zentren bei 1/4 und 3/4 der Slot-Spannweite.
+    # Langlöcher links/rechts (rechteck minus zwei Halbkreise)
+    def slot_shape(cx, cy, ang_deg=0):
+        # Baue als Differenz: Rechteck + zwei Zylinder schneiden
+        rect = Part.makeBox(HPL_SLOT_L, HPL_SLOT_W, HPL_THK, App.Vector(cx - HPL_SLOT_L/2, cy - HPL_SLOT_W/2, 0))
+        r = HPL_SLOT_W/2.0
+        cyl1 = Part.makeCylinder(r, HPL_THK, App.Vector(cx - HPL_SLOT_L/2, cy, 0))
+        cyl2 = Part.makeCylinder(r, HPL_THK, App.Vector(cx + HPL_SLOT_L/2, cy, 0))
+        slot = rect.fuse(cyl1).fuse(cyl2)
+        # Schneiden in die Platte (cut später)
+        return slot
+
+    y_lo = HPL_SLOT_OFF_Y + HPL_SLOT_W/2.0
+    y_hi = HPL_Y - HPL_SLOT_OFF_Y - HPL_SLOT_W/2.0
+    # je Seite zwei Langlöcher (vorne/hinten in x)
+    x1 = HPL_X*0.25
+    x2 = HPL_X*0.75
+    slots_shapes = [
+        slot_shape(x1, y_lo), slot_shape(x2, y_lo),
+        slot_shape(x1, y_hi), slot_shape(x2, y_hi),
+    ]
+    for s in slots_shapes:
+        base = base.cut(s)
+
+    # Swivel-Ring als flacher Torus-Annulus (Relief oben)
+    ring_od = Part.makeCylinder(HPL_RING_OD/2.0, HPL_RING_THK, App.Vector(HPL_X/2, HPL_Y/2, HPL_THK - HPL_RING_THK))
+    ring_id = Part.makeCylinder(HPL_RING_ID/2.0, HPL_RING_THK, App.Vector(HPL_X/2, HPL_Y/2, HPL_THK - HPL_RING_THK))
+    ring = ring_od.cut(ring_id)
+    body = base.fuse(ring)
+
+    # Detent-Blöcke (0°, 33°, 90°) – als kleine Quader auf Ringrand
+    detent_r = (HPL_RING_OD/2.0 + HPL_RING_ID/2.0)/2.0
+    for ang_deg, tag in [(0, "0"), (33, "33"), (90, "90")]:
+        ang = math.radians(ang_deg)
+        cx = HPL_X/2 + detent_r * math.cos(ang)
+        cy = HPL_Y/2 + detent_r * math.sin(ang)
+        # tangentiale Ausrichtung grob proxien: Quader ohne Rotation (einfach)
+        dx, dy = DETENT_L, DETENT_W
+        det = Part.makeBox(dx, dy, DETENT_H, App.Vector(cx - dx/2, cy - dy/2, HPL_THK - DETENT_H))
+        body = body.fuse(det)
+
+    return mk_feat(f"{name_prefix}", body)
+
+# ---------- SLB-Positionierung: je Seite 2, innerhalb der Plattform, z = Oberseite Ebene-2-Platte ----------
+# Zentren entlang x bei 1/4 und 3/4 der Slot-Spannweite, auf die Platte geclamped
 slb_centers_x = [
     front_margin_x + 0.25 * slot_total_x,
     front_margin_x + 0.75 * slot_total_x
 ]
+# y-Zentren: über den Slot-Reihen (links/rechts)
+row_center_L = left_row_y + SLOT_Y/2.0
+row_center_R = right_row_y + SLOT_Y/2.0
 
-for side_idx, side_label, base_y in [
-    (0, "L", left_row_y),
-    (1, "R", right_row_y)
-]:
-    row_center_y = base_y + SLOT_Y / 2.0
-
-    # y roh (zentriert über Reihe), dann in die Plattform einspannen
-    y_raw = row_center_y - SLB_Y / 2.0
-    slb_py = clamp(y_raw, 0.0, PLAT_Y - SLB_Y)
-
+hplates, slbs = [], []
+def place_slb(side_label, row_center_y):
     for j, cx in enumerate(slb_centers_x, start=1):
-        slb_px = clamp(cx - SLB_X / 2.0, 0.0, PLAT_X - SLB_X)
-
-        # H-Platte (als 3 Quader: 2 Flansche + 1 Steg), footprint = SLB_X × SLB_Y (anpassbar über H_EDGE_INSET_X)
-        hp_x = SLB_X + 2*H_EDGE_INSET_X
-        hp_y = SLB_Y + 2*H_EDGE_INSET_X
-        hp_px = slb_px - H_EDGE_INSET_X
-        hp_py = slb_py - H_EDGE_INSET_X
-
-        # Flansche
-        flange_left = mk_box(f"Hplate_{side_label}{j}_flangeL", hp_x, H_FLANGE_W, PLATE_THK, hp_px, hp_py, level2_base_z)
-        flange_right = mk_box(f"Hplate_{side_label}{j}_flangeR", hp_x, H_FLANGE_W, PLATE_THK, hp_px, hp_py + hp_y - H_FLANGE_W, level2_base_z)
-        # Steg
-        web_y = (hp_y - 2*H_FLANGE_W)
-        web = mk_box(f"Hplate_{side_label}{j}_web", hp_x, max(web_y, 1.0), PLATE_THK, hp_px, hp_py + H_FLANGE_W, level2_base_z)
-        hplates.extend([flange_left, flange_right, web])
-
-        # SLB
-        slb = mk_box(f"SLB_{side_label}_{j}_transport", SLB_X, SLB_Y, SLB_Z, slb_px, slb_py, slb_base_z)
+        px = clamp(cx - SLB_X/2.0, 0.0, PLAT_X - SLB_X)
+        py = clamp(row_center_y - SLB_Y/2.0, 0.0, PLAT_Y - SLB_Y)
+        # H-Plate sitzt plan auf Ebene-2-Platte
+        hp = make_hplate(f"Hplate_{side_label}{j}")
+        hp.Placement.Base = App.Vector(px + (SLB_X - HPL_X)/2.0, py + (SLB_Y - HPL_Y)/2.0, lv2_top_z)  # oben auf LV2
+        hplates.append(hp)
+        # SLB sitzt auf H-Plate
+        slb = mk_box(f"SLB_{side_label}_{j}_transport", SLB_X, SLB_Y, SLB_Z, px, py, lv2_top_z + HPL_THK)
         slbs.append(slb)
 
-# --- Stützen: 4 je Seite (pro SLB: vorne/hinten), im Mittelgang, von z=0 bis Unterseite H-Platte ---
-cols = []
+place_slb("L", row_center_L)
+place_slb("R", row_center_R)
 
-# Mittelgang-Bereich in y
-aisle_y_min = left_row_y + SLOT_Y
-aisle_y_max = right_row_y
+# ---------- Stützen unter Ebene 2 ----------
+columns = []
 
-# Stützen-y je Seite: links nahe Gangbeginn, rechts nahe Gangende
-col_y_L = aisle_y_min + COL_MARGIN_AISLE
-col_y_R = aisle_y_max - COL_MARGIN_AISLE - COL_D
+def add_column(name, x, y):
+    # von z=0 (Ebene-1-Oberfläche) bis Unterseite Ebene-2-Platte
+    h = lv2_base_z
+    columns.append(mk_box(name, COL_W, COL_D, h, x, y, 0.0))
 
-# Zuordnung: für linke SLBs nutze col_y_L, für rechte SLBs col_y_R
-# Wir greifen auf die zuvor berechneten SLB-Objekte und deren px zurück.
-def make_column_pair(name_prefix, slb_px, y_pos):
-    # vorn/hinten relativ zur SLB in x, mit Inset
-    x_front = clamp(slb_px + COL_INSET_X, 0.0, PLAT_X - COL_W)
-    x_rear  = clamp(slb_px + SLB_X - COL_INSET_X - COL_W, 0.0, PLAT_X - COL_W)
-    c1 = mk_box(f"{name_prefix}_F", COL_W, COL_D, level2_base_z, x_front, y_pos, 0.0)
-    c2 = mk_box(f"{name_prefix}_R", COL_W, COL_D, level2_base_z, x_rear,  y_pos, 0.0)
-    return [c1, c2]
+# Eckpunkte
+add_column("Col_FL", 0, 0)
+add_column("Col_FR", PLAT_X - COL_W, 0)
+add_column("Col_RL", 0, PLAT_Y - COL_D)
+add_column("Col_RR", PLAT_X - COL_W, PLAT_Y - COL_D)
 
-# Hole SLB-Paare je Seite in der Reihenfolge j=1..2
-slb_L = [o for o in slbs if o.Label.startswith("SLB_L_")]
-slb_R = [o for o in slbs if o.Label.startswith("SLB_R_")]
+# Mittig x (links und rechts in y)
+if ADD_MID_X:
+    add_column("Col_Mx_L", (PLAT_X - COL_W)/2.0, 0)
+    add_column("Col_Mx_R", (PLAT_X - COL_W)/2.0, PLAT_Y - COL_D)
 
-for j, o in enumerate(sorted(slb_L, key=lambda k: k.Placement.Base.x), start=1):
-    cols += make_column_pair(f"Col_L{j}", o.Placement.Base.x, col_y_L)
+# Mittig y (vorne/hinten in x)
+if ADD_MID_Y:
+    add_column("Col_My_F", 0, (PLAT_Y - COL_D)/2.0)
+    add_column("Col_My_R", PLAT_X - COL_W, (PLAT_Y - COL_D)/2.0)
 
-for j, o in enumerate(sorted(slb_R, key=lambda k: k.Placement.Base.x), start=1):
-    cols += make_column_pair(f"Col_R{j}", o.Placement.Base.x, col_y_R)
-
-# --- Gruppierung ---
-grp_slots = a("App::DocumentObjectGroup", "G_Ebene1_Slots"); grp_slots.addObjects(slots)
-grp_drawers = a("App::DocumentObjectGroup", "G_Ebene1_Drawers"); grp_drawers.addObjects(boxes)
-grp_hplates = a("App::DocumentObjectGroup", "G_Ebene2_Hplates"); grp_hplates.addObjects(hplates)
-grp_slb = a("App::DocumentObjectGroup", "G_Ebene2_SLBs"); grp_slb.addObjects(slbs)
-grp_cols = a("App::DocumentObjectGroup", "G_Ebene2_Columns"); grp_cols.addObjects(cols)
-grp_all = a("App::DocumentObjectGroup", "Assembly_Proxy"); grp_all.addObjects([platform, grp_slots, grp_drawers, grp_hplates, grp_slb, grp_cols])
+# ---------- Gruppen ----------
+grp_lvl1 = a("App::DocumentObjectGroup", "G_Ebene1"); grp_lvl1.addObjects([platform] + slots + drawers)
+grp_lvl2 = a("App::DocumentObjectGroup", "G_Ebene2"); grp_lvl2.addObjects([lv2_plate] + hplates + slbs + columns)
+assembly = a("App::DocumentObjectGroup", "Assembly_Proxy"); assembly.addObjects([grp_lvl1, grp_lvl2])
 
 App.ActiveDocument.recompute()
 
-# --- Export ---
+# ---------- Export ----------
 fcstd_path = os.path.join(build_dir, "TARS_v0.2.FCStd")
 App.ActiveDocument.saveAs(fcstd_path)
-
-to_export = [platform] + slots + boxes + hplates + slbs + cols
 step_path = os.path.join(build_dir, "TARS_v0.2.step")
+to_export = [platform] + slots + drawers + [lv2_plate] + hplates + slbs + columns
 Part.export(to_export, step_path)
 
 print(f"Saved FCStd: {fcstd_path}")
 print(f"Saved STEP:  {step_path}")
-
 App.closeDocument(App.ActiveDocument.Name)
