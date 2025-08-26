@@ -109,6 +109,7 @@ doc.recompute()
 doc.saveAs(FCSTD_PATH)
 shape = doc.getObject("L1_Deck").Shape
 # Für STEP: gesamte Dok‑Fusion (einfacher Export aller sichtbaren Körper)
+import PART
 all_shapes = [o.Shape for o in doc.Objects if hasattr(o, "Shape")]
 compound = Part.makeCompound(all_shapes)
 Part.export([compound], STEP_PATH)
