@@ -1,6 +1,34 @@
 # 01_CAD/src/build_tars_fcstd.py
 # FreeCAD 1.0 headless builder for TARS v0.2
 import os, math, sys
+import FreeCAD as App
+import Part
+
+repo_root = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
+build_dir = os.path.join(repo_root, "01_CAD", "build")
+os.makedirs(build_dir, exist_ok=True)
+
+# Dokument anlegen (oder öffnen, wenn du parametrisch erzeugst)
+doc = App.newDocument("TARS_v0_2")
+
+# Beispiel-Objekt (ersetzt durch deinen tatsächlichen Aufbau)
+cube = Part.makeBox(10, 10, 10)
+feat = App.ActiveDocument.addObject("Part::Feature", "Placeholder")
+feat.Shape = cube
+App.ActiveDocument.recompute()
+
+# Speichern
+fcstd_path = os.path.join(build_dir, "TARS_v0.2.FCStd")
+App.ActiveDocument.saveAs(fcstd_path)
+step_path = os.path.join(build_dir, "TARS_v0.2.step")
+Part.export([feat], step_path)
+
+print(f"Saved FCStd: {fcstd_path}")
+print(f"Saved STEP:  {step_path}")
+
+# Sauber schließen
+App.closeDocument(App.ActiveDocument.Name)
+
 
 try:
     import FreeCAD as App

@@ -27,6 +27,12 @@ jobs:
           # Debug: zeige, was im usr/bin liegt
           ls -la "${GITHUB_WORKSPACE}/squashfs-root/usr/bin"
 
+      - name: Prepare build dir
+        run: |
+          set -euo pipefail
+          mkdir -p 01_CAD/build
+
+
       - name: Build FCStd and STEP (FreeCADCmd from AppImage)
         run: |
           set -euo pipefail
@@ -41,12 +47,22 @@ jobs:
           "${FC_BIN}" --version || true
           "${FC_BIN}" -c 01_CAD/src/build_tars_fcstd.py
 
+      - name: Inspect build outputs
+        run: |
+          set -euo pipefail
+          echo "PWD: $(pwd)"
+          ls -la 01_CAD/build || true
+          echo "Scan for CAD files:"
+          find 01_CAD -maxdepth 3 -type f -iregex '.*\.\(fcstd\|step\|stp\)$' -print
+
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: TARS_v0.2_FCStd_STEP
           path: |
-            01_CAD/build/TARS_v0.2.FCStd
-            01_CAD/build/TARS_v0.2.step
+            01_CAD/build/*.FCStd
+            01_CAD/build/*.step
+            01_CAD/build/*.stp
           if-no-files-found: error
-
+          retention-days: 14
